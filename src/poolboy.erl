@@ -11,6 +11,7 @@
 -export_type([pool/0]).
 
 -define(TIMEOUT, 5000).
+-define(INACTIVITY_TIMEOUT, timer:minutes(5)).
 
 -ifdef(pre17).
 -type pid_queue() :: queue().
@@ -44,7 +45,8 @@
     size = 5 :: non_neg_integer(),
     overflow = 0 :: non_neg_integer(),
     max_overflow = 10 :: non_neg_integer(),
-    strategy = lifo :: lifo | fifo
+    strategy = lifo :: lifo | fifo,
+    idle_workers = #{} :: map()
 }).
 
 -spec checkout(Pool :: pool()) -> pid().
@@ -276,6 +278,15 @@ handle_info({'EXIT', Pid, _Reason}, State) ->
             end
     end;
 
+handle_info({dismiss_idle, Pid}, State) ->
+    #state{supervisor = Sup,
+           idle_workers = IdleWorkers,
+           overflow = Overflow} = State,
+    ok = dismiss_worker(Sup, Pid),
+    NewIdleWorkers = maps:remove(Pid, IdleWorkers),
+    NewState = State#state{overflow = Overflow - 1, idle_workers = NewIdleWorkers},
+    {noreply, NewState};
+
 handle_info(_Info, State) ->
     {noreply, State}.
 
@@ -329,9 +340,9 @@ prepopulate(N, Sup, Workers) ->
     prepopulate(N-1, Sup, queue:in(new_worker(Sup), Workers)).
 
 handle_checkin(Pid, State) ->
-    #state{supervisor = Sup,
-           waiting = Waiting,
+    #state{waiting = Waiting,
            monitors = Monitors,
+           idle_workers = IdleWorkers,
            overflow = Overflow} = State,
     case queue:out(Waiting) of
         {{value, {From, CRef, MRef}}, Left} ->
@@ -339,8 +350,9 @@ handle_checkin(Pid, State) ->
             gen_server:reply(From, Pid),
             State#state{waiting = Left};
         {empty, Empty} when Overflow > 0 ->
-            ok = dismiss_worker(Sup, Pid),
-            State#state{waiting = Empty, overflow = Overflow - 1};
+            Timer = erlang:send_after(?INACTIVITY_TIMEOUT, self(), {dismiss_idle, Pid}),
+            NewIdleWorkers = maps:put(Pid, Timer, IdleWorkers),
+            State#state{waiting = Empty, idle_workers = NewIdleWorkers};
         {empty, Empty} ->
             Workers = queue:in(Pid, State#state.workers),
             State#state{workers = Workers, waiting = Empty, overflow = 0}
