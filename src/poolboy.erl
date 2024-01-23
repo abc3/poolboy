@@ -361,7 +361,8 @@ handle_checkin(Pid, State) ->
         {empty, Empty} when Overflow > 0 ->
             Timer = erlang:send_after(?INACTIVITY_TIMEOUT, self(), {dismiss_idle, Pid}),
             NewIdleWorkers = maps:put(Pid, Timer, IdleWorkers),
-            State#state{waiting = Empty, idle_workers = NewIdleWorkers};
+            Workers = queue:in(Pid, State#state.workers),
+            State#state{workers = Workers, waiting = Empty, idle_workers = NewIdleWorkers};            
         {empty, Empty} ->
             Workers = queue:in(Pid, State#state.workers),
             State#state{workers = Workers, waiting = Empty, overflow = 0}
