@@ -208,12 +208,21 @@ handle_call({checkout, CRef, Block}, {FromPid, _} = From, State) ->
            monitors = Monitors,
            overflow = Overflow,
            max_overflow = MaxOverflow,
+           idle_workers = IdleWorkers,
            strategy = Strategy} = State,
     case get_worker_with_strategy(Workers, Strategy) of
         {{value, Pid},  Left} ->
+            NewIdleWorkers = 
+                case maps:get(Pid, IdleWorkers, undefined) of
+                    undefined -> 
+                        IdleWorkers;
+                    Timer -> 
+                        erlang:cancel_timer(Timer), 
+                        maps:remove(Pid, IdleWorkers)
+                end,            
             MRef = erlang:monitor(process, FromPid),
             true = ets:insert(Monitors, {Pid, CRef, MRef}),
-            {reply, Pid, State#state{workers = Left}};
+            {reply, Pid, State#state{workers = Left, idle_workers = NewIdleWorkers}};
         {empty, _Left} when MaxOverflow > 0, Overflow < MaxOverflow ->
             {Pid, MRef} = new_worker(Sup, FromPid),
             true = ets:insert(Monitors, {Pid, CRef, MRef}),
