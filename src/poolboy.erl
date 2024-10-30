@@ -285,7 +285,7 @@ handle_info({'EXIT', Pid, _Reason}, State) ->
                 true ->
                     W = filter_worker_by_pid(Pid, State#state.workers),
                     NewWorker = new_worker(Sup),
-                    NewIdleWorkersClean = remove_idle_worker(Pid, IdleWorkers)
+                    NewIdleWorkersClean = remove_idle_worker(Pid, IdleWorkers),
                     NewIdleWorkers = add_idle_worker(NewWorker, State#state.idle_timeout, NewIdleWorkersClean),
                     {noreply, State#state{workers = queue:in(NewWorker, W), idle_workers = NewIdleWorkers}};
                 false ->
